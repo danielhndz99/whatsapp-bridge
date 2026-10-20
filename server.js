@@ -68,7 +68,7 @@ app.get('/', async (req, res) => {
   }
 });
 
-app.post('/send-whatsapp', async, async (req, res) => {
+app.post('/send-whatsapp', async (req, res) => {
   try {
     const { groupId, message } = req.body;
     if (!sock || !isConnected) {
