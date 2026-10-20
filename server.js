@@ -40,6 +40,19 @@ async function iniciarWhatsApp() {
         isConnected = true;
         currentQr = null;
         console.log('¡WhatsApp conectado correctamente!');
+        
+        // Imprimir todos los grupos y sus IDs en los logs de Render
+        try {
+          const groups = await sock.groupFetchAllParticipating();
+          console.log('\n================ TUS GRUPOS DE WHATSAPP ================');
+          for (const id in groups) {
+            console.log(`📌 Grupo: "${groups[id].subject}" --> ID: ${id}`);
+          }
+          console.log('========================================================\n');
+        } catch (e) {
+          console.log('No se pudieron listar los grupos:', e);
+        }
+
       } else if (connection === 'close') {
         isConnected = false;
         const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
