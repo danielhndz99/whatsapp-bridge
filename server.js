@@ -1,10 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-import baileys from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
-
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = baileys;
 
 const app = express();
 app.use(express.json());
