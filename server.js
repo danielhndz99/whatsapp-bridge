@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import makeWASocket, { useMultiFileAuthState } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
 
@@ -12,36 +12,47 @@ let sock;
 let currentQr = null;
 let isConnected = false;
 
-async function conectarWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState('sesion_whatsapp');
-  
-  sock = makeWASocket({
-    auth: state,
-    printQRInTerminal: false,
-    logger: pino({ level: 'silent' }),
-    browser: ['Render', 'Chrome', '1.0.0']
-  });
+async function iniciarWhatsApp() {
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
+    
+    sock = makeWASocket({
+      auth: state,
+      printQRInTerminal: false,
+      logger: pino({ level: 'silent' }),
+      browser: ['Ubuntu', 'Chrome', '20.0.0']
+    });
 
-  sock.ev.on('creds.update', saveCreds);
-  
-  sock.ev.on('connection.update', (update) => {
-    const { connection, qr } = update;
-    if (qr) {
-      currentQr = qr;
-      console.log('Nuevo QR generado en memoria.');
-    }
-    if (connection === 'open') {
-      isConnected = true;
-      currentQr = null;
-      console.log('¡WhatsApp conectado exitosamente!');
-    } else if (connection === 'close') {
-      isConnected = false;
-      setTimeout(conectarWhatsApp, 5000);
-    }
-  });
+    sock.ev.on('creds.update', saveCreds);
+    
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+      
+      if (qr) {
+        currentQr = qr;
+        console.log('¡Nuevo código QR generado con éxito!');
+      }
+      
+      if (connection === 'open') {
+        isConnected = true;
+        currentQr = null;
+        console.log('¡WhatsApp conectado correctamente!');
+      } else if (connection === 'close') {
+        isConnected = false;
+        const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+        console.log('Conexión cerrada. Reconectando...', shouldReconnect);
+        if (shouldReconnect) {
+          setTimeout(iniciarWhatsApp, 3000);
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error crítico al iniciar WhatsApp:', error);
+    setTimeout(iniciarWhatsApp, 5000);
+  }
 }
 
-conectarWhatsApp();
+iniciarWhatsApp();
 
 app.get('/', async (req, res) => {
   if (isConnected) {
@@ -50,9 +61,7 @@ app.get('/', async (req, res) => {
   if (!currentQr) {
     return res.send(`
       <html>
-        <head>
-          <meta http-equiv="refresh" content="3">
-        </head>
+        <head><meta http-equiv="refresh" content="3"></head>
         <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
           <h2>Generando código QR, actualizando en 3 segundos...</h2>
         </body>
@@ -69,7 +78,7 @@ app.get('/', async (req, res) => {
       </div>
     `);
   } catch (err) {
-    res.status(500).send('Error al generar el QR');
+    res.status(500).send('Error al generar la imagen del QR');
   }
 });
 
@@ -77,7 +86,7 @@ app.post('/send-whatsapp', async (req, res) => {
   try {
     const { groupId, message } = req.body;
     if (!sock || !isConnected) {
-      return res.status(500).json({ error: 'WhatsApp no está conectado aún.' });
+      return res.status(500).json({ error: 'WhatsApp no está conectado todavía.' });
     }
     await sock.sendMessage(groupId, { text: message });
     res.json({ success: true, message: 'Mensaje enviado correctamente.' });
@@ -89,5 +98,5 @@ app.post('/send-whatsapp', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor escuchando en el puerto ${PORT}`);
+  console.log(`Servidor web corriendo en el puerto ${PORT}`);
 });
