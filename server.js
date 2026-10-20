@@ -1,8 +1,11 @@
 import express from 'express';
 import cors from 'cors';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import { createRequire } from 'module';
 import pino from 'pino';
 import QRCode from 'qrcode';
+
+const require = createRequire(import.meta.url);
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 
 const app = express();
 app.use(express.json());
