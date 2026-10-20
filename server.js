@@ -2,14 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
-import QRCode from 'qrcode';
+import qrcodeTerminal from 'qrcode-terminal';
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
 let sock;
-let currentQr = null;
 let isConnected = false;
 
 async function iniciarWhatsApp() {
@@ -18,7 +17,7 @@ async function iniciarWhatsApp() {
     
     sock = makeWASocket({
       auth: state,
-      printQRInTerminal: false,
+      printQRInTerminal: true,
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0']
     });
@@ -29,18 +28,17 @@ async function iniciarWhatsApp() {
       const { connection, lastDisconnect, qr } = update;
       
       if (qr) {
-        currentQr = qr;
-        console.log('¡Nuevo código QR generado con éxito!');
+        console.log('\n================ NUEVO CÓDIGO QR ================');
+        qrcodeTerminal.generate(qr, { small: true });
+        console.log('==================================================\n');
       }
       
       if (connection === 'open') {
         isConnected = true;
-        currentQr = null;
         console.log('¡WhatsApp conectado correctamente!');
       } else if (connection === 'close') {
         isConnected = false;
         const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-        console.log('Conexión cerrada. Reconectando...', shouldReconnect);
         if (shouldReconnect) {
           setTimeout(iniciarWhatsApp, 3000);
         }
@@ -54,31 +52,11 @@ async function iniciarWhatsApp() {
 
 iniciarWhatsApp();
 
-app.get('/', async (req, res) => {
+app.get('/', (req, res) => {
   if (isConnected) {
-    return res.send('<h2>¡WhatsApp ya está conectado y listo!</h2>');
-  }
-  if (!currentQr) {
-    return res.send(`
-      <html>
-        <head><meta http-equiv="refresh" content="3"></head>
-        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
-          <h2>Generando código QR, actualizando en 3 segundos...</h2>
-        </body>
-      </html>
-    `);
-  }
-  try {
-    const qrImage = await QRCode.toDataURL(currentQr);
-    res.send(`
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
-        <h2>Escanea este código QR con tu WhatsApp</h2>
-        <img src="${qrImage}" alt="QR Code" style="width:300px;height:300px;" />
-        <p>Abre WhatsApp > Dispositivos vinculados > Vincular dispositivo</p>
-      </div>
-    `);
-  } catch (err) {
-    res.status(500).send('Error al generar la imagen del QR');
+    res.send('<h2>¡WhatsApp está conectado y listo para recibir alertas!</h2>');
+  } else {
+    res.send('<h2>El servicio está activo. Por favor revisa la pestaña "Logs" en tu panel de Render para ver y escanear el código QR.</h2>');
   }
 });
 
