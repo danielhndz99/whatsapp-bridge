@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
 
