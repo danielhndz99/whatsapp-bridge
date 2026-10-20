@@ -52,7 +52,17 @@ app.get('/', async (req, res) => {
     return res.send('<h2>¡WhatsApp ya está conectado y listo!</h2>');
   }
   if (!currentQr) {
-    return res.send('<h2>Generando código QR, por favor recarga en 5 segundos...</h2>');
+    return res.send(`
+      <html>
+        <head>
+          <meta http-equiv="refresh" content="3">
+          <title>Generando QR</title>
+        </head>
+        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
+          <h2>Generando código QR, por favor espera un momento (actualizando automáticamente)...</h2>
+        </body>
+      </html>
+    `);
   }
   try {
     const qrImage = await QRCode.toDataURL(currentQr);
