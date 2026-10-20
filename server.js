@@ -2,13 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import makeWASocket, { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import pino from 'pino';
-import qrcodeTerminal from 'qrcode-terminal';
+import QRCode from 'qrcode';
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
 let sock;
+let currentQr = null;
 let isConnected = false;
 
 async function conectarWhatsApp() {
@@ -16,7 +17,7 @@ async function conectarWhatsApp() {
   
   sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true,
+    printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: ['Render', 'Chrome', '1.0.0']
   });
@@ -26,11 +27,12 @@ async function conectarWhatsApp() {
   sock.ev.on('connection.update', (update) => {
     const { connection, qr } = update;
     if (qr) {
-      console.log('--- COPIA Y ESCANEA ESTE QR EN TU CONSOLA O USA UN VISOR ---');
-      qrcodeTerminal.generate(qr, { small: true });
+      currentQr = qr;
+      console.log('Nuevo QR generado en memoria.');
     }
     if (connection === 'open') {
       isConnected = true;
+      currentQr = null;
       console.log('¡WhatsApp conectado exitosamente!');
     } else if (connection === 'close') {
       isConnected = false;
@@ -41,11 +43,33 @@ async function conectarWhatsApp() {
 
 conectarWhatsApp();
 
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
   if (isConnected) {
-    res.send('<h2>¡WhatsApp está conectado y listo!</h2>');
-  } else {
-    res.send('<h2>Revisa los Logs (registros) en Render para ver el código QR en formato de texto.</h2>');
+    return res.send('<h2>¡WhatsApp ya está conectado y listo!</h2>');
+  }
+  if (!currentQr) {
+    return res.send(`
+      <html>
+        <head>
+          <meta http-equiv="refresh" content="3">
+        </head>
+        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
+          <h2>Generando código QR, actualizando en 3 segundos...</h2>
+        </body>
+      </html>
+    `);
+  }
+  try {
+    const qrImage = await QRCode.toDataURL(currentQr);
+    res.send(`
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+        <h2>Escanea este código QR con tu WhatsApp</h2>
+        <img src="${qrImage}" alt="QR Code" style="width:300px;height:300px;" />
+        <p>Abre WhatsApp > Dispositivos vinculados > Vincular dispositivo</p>
+      </div>
+    `);
+  } catch (err) {
+    res.status(500).send('Error al generar el QR');
   }
 });
 
