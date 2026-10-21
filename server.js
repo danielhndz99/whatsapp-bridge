@@ -4,7 +4,6 @@ import { createRequire } from 'module';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import fs from 'fs';
-import path from 'path';
 import NodeCache from 'node-cache';
 
 const require = createRequire(import.meta.url);
@@ -19,10 +18,8 @@ let currentQr = null;
 let isConnected = false;
 const msgRetryCounterCache = new NodeCache();
 
-// Ruta absoluta asegurada al disco persistente de Render
 const authPath = '/opt/render/project/src/auth_info';
 
-// Asegurar que el directorio de autenticación exista físicamente
 if (!fs.existsSync(authPath)) {
   fs.mkdirSync(authPath, { recursive: true });
 }
@@ -37,9 +34,6 @@ async function iniciarWhatsApp() {
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
       msgRetryCounterCache,
-      getMessage: async (key) => {
-        return { conversation: 'Recuperación de mensaje' };
-      },
       syncFullHistory: false
     });
 
@@ -112,14 +106,18 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    await sock.sendMessage(destino, { text: contenido });
-    console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
-    
+    // Uso de relayMessage para evitar errores de cifrado libsignal en grupos
+    const messageId = sock.generateMessageTag();
+    await sock.relayMessage(destino, {
+      conversation: contenido
+    }, { messageId });
+
+    console.log(`✅ Mensaje enviado exitosamente mediante relayMessage a ${destino}`);
     return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
 
   } catch (error) {
-    console.error('Error al enviar el mensaje:', error);
-    return res.status(500).json({ error: 'Error de sesión al enviar mensaje.' });
+    console.error('Error crítico al enviar el mensaje:', error);
+    return res.status(500).json({ error: 'Error al enviar mensaje.' });
   }
 });
 
