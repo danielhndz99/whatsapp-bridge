@@ -4,10 +4,10 @@ import { createRequire } from 'module';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import fs from 'fs';
-import NodeCache from 'node-cache';
+import path from 'path';
 
 const require = createRequire(import.meta.url);
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, generateWAMessageFromContent, proto } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 
 const app = express();
 app.use(express.json());
@@ -16,7 +16,6 @@ app.use(cors());
 let sock;
 let currentQr = null;
 let isConnected = false;
-const msgRetryCounterCache = new NodeCache();
 
 const authPath = '/opt/render/project/src/auth_info';
 
@@ -33,8 +32,8 @@ async function iniciarWhatsApp() {
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
-      msgRetryCounterCache,
-      syncFullHistory: false
+      // Mantiene activo el intercambio de llaves de grupo
+      markOnlineOnConnect: true
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -71,14 +70,14 @@ iniciarWhatsApp();
 
 app.get('/', async (req, res) => {
   if (isConnected) {
-    return res.send('<h2>✅ ¡WhatsApp está conectado y la sesión persistente está activa!</h2>');
+    return res.send('<h2>✅ ¡WhatsApp está conectado y listo!</h2>');
   }
   if (!currentQr) {
     return res.send(`
       <html>
         <head><meta http-equiv="refresh" content="3"></head>
         <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
-          <h2>Iniciando servidor y cargando sesión guardada...</h2>
+          <h2>Iniciando servidor y cargando sesión...</h2>
         </body>
       </html>
     `);
@@ -106,21 +105,23 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    // Generar el mensaje usando el protocolo nativo para evitar SessionError en grupos
-    const messageContent = generateWAMessageFromContent(destino, {
-      extendedTextMessage: {
-        text: contenido
-      }
-    }, { userJid: sock.user.id });
+    // Pasos obligatorios para inicializar la sesión del grupo antes de enviar
+    try {
+      // 1. Obtener los datos/participantes del grupo para cargar sus llaves
+      await sock.groupMetadata(destino);
+    } catch (e) {
+      console.log('Consulta de metadatos completada/omitida:', e.message);
+    }
 
-    await sock.relayMessage(destino, messageContent.message, { messageId: messageContent.key.id });
+    // 2. Enviar mensaje directo al JID del grupo
+    await sock.sendMessage(destino, { text: contenido });
     console.log(`✅ Mensaje enviado exitosamente al grupo ${destino}`);
     
     return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
 
   } catch (error) {
-    console.error('Error crítico al enviar el mensaje:', error);
-    return res.status(500).json({ error: 'Error al enviar mensaje por protocolo.' });
+    console.error('Error al enviar mensaje:', error);
+    return res.status(500).json({ error: 'Error de sesión al enviar mensaje.' });
   }
 });
 
