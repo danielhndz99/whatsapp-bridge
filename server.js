@@ -25,9 +25,7 @@ async function iniciarWhatsApp() {
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
-      // Configuraciones clave para evitar el error de sesiones en Render
-      generateHighQualityLinkPreview: false,
-      markOnlineOnConnect: false
+      syncFullHistory: false
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -54,7 +52,6 @@ async function iniciarWhatsApp() {
         } else {
           try {
             fs.rmSync('./auth_info', { recursive: true, force: true });
-            console.log('Sesión limpiada.');
           } catch (e) {}
           setTimeout(iniciarWhatsApp, 3000);
         }
@@ -77,7 +74,7 @@ app.get('/', async (req, res) => {
       <html>
         <head><meta http-equiv="refresh" content="3"></head>
         <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
-          <h2>Iniciando servidor de WhatsApp, por favor espera 3 segundos...</h2>
+          <h2>Iniciando servidor, espera un momento...</h2>
         </body>
       </html>
     `);
@@ -105,21 +102,21 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    // Envío con manejo seguro de reintento ante fallos de sesión
+    // 1. Forzar sincronización de metadatos del grupo (crea las sesiones de cifrado de los participantes)
     try {
-      await sock.sendMessage(destino, { text: contenido });
-      console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
-      return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
-    } catch (innerErr) {
-      console.log('Fallo el primer intento de envío, reintentando...', innerErr);
-      // Forzar un segundo intento inmediato si ocurre un error de cifrado puntual
-      await sock.sendMessage(destino, { text: contenido });
-      console.log(`✅ Mensaje enviado en el segundo intento a ${destino}`);
-      return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
+      await sock.groupMetadata(destino);
+    } catch (e) {
+      console.log('Aviso: No se pudieron obtener metadatos previos, intentando envío directo...', e.message);
     }
 
+    // 2. Enviar el mensaje
+    await sock.sendMessage(destino, { text: contenido });
+    console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
+    
+    return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
+
   } catch (error) {
-    console.error('Error crítico al enviar el mensaje:', error);
+    console.error('Error al enviar el mensaje:', error);
     res.status(500).json({ error: 'Error de sesión al enviar mensaje.' });
   }
 });
