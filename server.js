@@ -3,7 +3,11 @@ import cors from 'cors';
 import { createRequire } from 'module';
 import pino from 'pino';
 import QRCode from 'qrcode';
-import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const require = createRequire(import.meta.url);
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
@@ -18,16 +22,16 @@ let isConnected = false;
 
 async function iniciarWhatsApp() {
   try {
-    const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
+    // Usar la ruta absoluta exacta del disco persistente de Render
+    const authPath = path.join('/opt/render/project/src', 'auth_info');
+    const { state, saveCreds } = await useMultiFileAuthState(authPath);
     
     sock = makeWASocket({
       auth: state,
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
-      // Evitar sincronizaciones pesadas que generan conflictos de sesión
-      syncFullHistory: false,
-      markOnlineOnConnect: true
+      syncFullHistory: false
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -43,18 +47,13 @@ async function iniciarWhatsApp() {
       if (connection === 'open') {
         isConnected = true;
         currentQr = null;
-        console.log('✅ WHATSAPP CONECTADO CORRECTAMENTE');
+        console.log('✅ WHATSAPP CONECTADO Y SESIÓN PERSISTENTE ACTIVA');
       } else if (connection === 'close') {
         isConnected = false;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         console.log(`Conexión cerrada (Código: ${statusCode}). Reconectando...`);
         
         if (statusCode !== DisconnectReason.loggedOut) {
-          setTimeout(iniciarWhatsApp, 3000);
-        } else {
-          try {
-            fs.rmSync('./auth_info', { recursive: true, force: true });
-          } catch (e) {}
           setTimeout(iniciarWhatsApp, 3000);
         }
       }
@@ -104,31 +103,14 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    // Asegurar que el socket reconozca el grupo antes de enviar
-    try {
-      await sock.presenceSubscribe(destino);
-    } catch (e) {}
-
-    // Envío del mensaje asegurando la estructura compatible con Baileys
     await sock.sendMessage(destino, { text: contenido });
     console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
     
     return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
 
   } catch (error) {
-    console.error('Error al enviar el mensaje:', error);
-    
-    // Intento alternativo de emergencia utilizando reenvío directo por id de grupo
-    try {
-      const { groupId, message, text } = req.body;
-      const contenido = message || text;
-      await sock.sendMessage(groupId || '120363294650859422@g.us', { text: contenido });
-      console.log('✅ Mensaje enviado en el intento de respaldo');
-      return res.status(200).json({ success: true, message: 'Aviso enviado en respaldo' });
-    } catch (err2) {
-      console.error('Fallo total de envío:', err2);
-      return res.status(500).json({ error: 'SessionError persistente' });
-    }
+    console.error('Error crítico al enviar el mensaje:', error);
+    return res.status(500).json({ error: 'Error de sesión al enviar mensaje.' });
   }
 });
 
