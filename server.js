@@ -3,6 +3,7 @@ import cors from 'cors';
 import { createRequire } from 'module';
 import pino from 'pino';
 import QRCode from 'qrcode';
+import fs from 'fs';
 
 const require = createRequire(import.meta.url);
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
@@ -26,9 +27,7 @@ async function iniciarWhatsApp() {
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 25000,
-      // Desactivar sincronización de historial pesado para evitar fallos de sesión
-      syncFullHistory: false
+      keepAliveIntervalMs: 25000
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -38,19 +37,26 @@ async function iniciarWhatsApp() {
       
       if (qr) {
         currentQr = qr;
-        console.log('¡Nuevo código QR listo!');
+        console.log('¡Nuevo código QR listo para escanear!');
       }
       
       if (connection === 'open') {
         isConnected = true;
         currentQr = null;
-        console.log('✅ WHATSAPP CONECTADO CORRECTAMENTE Y SESIÓN LIMPIA');
+        console.log('✅ WHATSAPP CONECTADO CORRECTAMENTE');
       } else if (connection === 'close') {
         isConnected = false;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         console.log(`Conexión cerrada (Código: ${statusCode}). Reconectando...`);
         
         if (statusCode !== DisconnectReason.loggedOut) {
+          setTimeout(iniciarWhatsApp, 3000);
+        } else {
+          // Si hubo cierre de sesión explícito, borramos la sesión corrupta
+          try {
+            fs.rmSync('./auth_info', { recursive: true, force: true });
+            console.log('Sesión limpiada por cierre de sesión.');
+          } catch (e) {}
           setTimeout(iniciarWhatsApp, 3000);
         }
       }
@@ -72,7 +78,7 @@ app.get('/', async (req, res) => {
       <html>
         <head><meta http-equiv="refresh" content="3"></head>
         <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
-          <h2>Iniciando servidor, espera un momento...</h2>
+          <h2>Iniciando servidor de WhatsApp, por favor espera 3 segundos...</h2>
         </body>
       </html>
     `);
@@ -83,6 +89,7 @@ app.get('/', async (req, res) => {
       <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
         <h2>Escanea este código QR con tu WhatsApp</h2>
         <img src="${qrImage}" alt="QR Code" style="width:300px;height:300px;" />
+        <p>Abre WhatsApp > Dispositivos vinculados > Vincular dispositivo</p>
       </div>
     `);
   } catch (err) {
@@ -100,14 +107,14 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    // Usar sendMessage de forma directa
+    // Verificación de existencia de sesión activa antes de enviar
     await sock.sendMessage(destino, { text: contenido });
     console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
     
     res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
   } catch (error) {
     console.error('Error al enviar el mensaje:', error);
-    res.status(500).json({ error: 'Error al cifrar o enviar mensaje. Reintente.' });
+    res.status(500).json({ error: 'Error de sesión al enviar mensaje. Reintente.' });
   }
 });
 
