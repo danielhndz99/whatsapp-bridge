@@ -25,9 +25,9 @@ async function iniciarWhatsApp() {
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
-      connectTimeoutMs: 60000,
-      defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 25000
+      // Configuraciones clave para evitar el error de sesiones en Render
+      generateHighQualityLinkPreview: false,
+      markOnlineOnConnect: false
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -52,10 +52,9 @@ async function iniciarWhatsApp() {
         if (statusCode !== DisconnectReason.loggedOut) {
           setTimeout(iniciarWhatsApp, 3000);
         } else {
-          // Si hubo cierre de sesión explícito, borramos la sesión corrupta
           try {
             fs.rmSync('./auth_info', { recursive: true, force: true });
-            console.log('Sesión limpiada por cierre de sesión.');
+            console.log('Sesión limpiada.');
           } catch (e) {}
           setTimeout(iniciarWhatsApp, 3000);
         }
@@ -89,7 +88,6 @@ app.get('/', async (req, res) => {
       <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
         <h2>Escanea este código QR con tu WhatsApp</h2>
         <img src="${qrImage}" alt="QR Code" style="width:300px;height:300px;" />
-        <p>Abre WhatsApp > Dispositivos vinculados > Vincular dispositivo</p>
       </div>
     `);
   } catch (err) {
@@ -107,14 +105,22 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    // Verificación de existencia de sesión activa antes de enviar
-    await sock.sendMessage(destino, { text: contenido });
-    console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
-    
-    res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
+    // Envío con manejo seguro de reintento ante fallos de sesión
+    try {
+      await sock.sendMessage(destino, { text: contenido });
+      console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
+      return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
+    } catch (innerErr) {
+      console.log('Fallo el primer intento de envío, reintentando...', innerErr);
+      // Forzar un segundo intento inmediato si ocurre un error de cifrado puntual
+      await sock.sendMessage(destino, { text: contenido });
+      console.log(`✅ Mensaje enviado en el segundo intento a ${destino}`);
+      return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
+    }
+
   } catch (error) {
-    console.error('Error al enviar el mensaje:', error);
-    res.status(500).json({ error: 'Error de sesión al enviar mensaje. Reintente.' });
+    console.error('Error crítico al enviar el mensaje:', error);
+    res.status(500).json({ error: 'Error de sesión al enviar mensaje.' });
   }
 });
 
