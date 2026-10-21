@@ -3,12 +3,9 @@ import cors from 'cors';
 import { createRequire } from 'module';
 import pino from 'pino';
 import QRCode from 'qrcode';
+import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import NodeCache from 'node-cache';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const require = createRequire(import.meta.url);
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
@@ -22,9 +19,16 @@ let currentQr = null;
 let isConnected = false;
 const msgRetryCounterCache = new NodeCache();
 
+// Ruta absoluta asegurada al disco persistente de Render
+const authPath = '/opt/render/project/src/auth_info';
+
+// Asegurar que el directorio de autenticación exista físicamente
+if (!fs.existsSync(authPath)) {
+  fs.mkdirSync(authPath, { recursive: true });
+}
+
 async function iniciarWhatsApp() {
   try {
-    const authPath = path.join('/opt/render/project/src', 'auth_info');
     const { state, saveCreds } = await useMultiFileAuthState(authPath);
     
     sock = makeWASocket({
@@ -33,9 +37,8 @@ async function iniciarWhatsApp() {
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
       msgRetryCounterCache,
-      // Función obligatoria para evitar el SessionError en grupos
       getMessage: async (key) => {
-        return { conversation: 'Mensaje de recuperación' };
+        return { conversation: 'Recuperación de mensaje' };
       },
       syncFullHistory: false
     });
@@ -53,7 +56,7 @@ async function iniciarWhatsApp() {
       if (connection === 'open') {
         isConnected = true;
         currentQr = null;
-        console.log('✅ WHATSAPP CONECTADO Y LISTO PARA ENVIAR');
+        console.log('✅ WHATSAPP CONECTADO Y SESIÓN CARGADA DESDE EL DISCO');
       } else if (connection === 'close') {
         isConnected = false;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
@@ -74,14 +77,14 @@ iniciarWhatsApp();
 
 app.get('/', async (req, res) => {
   if (isConnected) {
-    return res.send('<h2>✅ ¡WhatsApp está conectado y listo!</h2>');
+    return res.send('<h2>✅ ¡WhatsApp está conectado y la sesión persistente está activa!</h2>');
   }
   if (!currentQr) {
     return res.send(`
       <html>
         <head><meta http-equiv="refresh" content="3"></head>
         <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
-          <h2>Iniciando servidor, espera un momento...</h2>
+          <h2>Iniciando servidor y cargando sesión guardada...</h2>
         </body>
       </html>
     `);
@@ -115,7 +118,7 @@ app.post('/send-whatsapp', async (req, res) => {
     return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
 
   } catch (error) {
-    console.error('Error crítico al enviar el mensaje:', error);
+    console.error('Error al enviar el mensaje:', error);
     return res.status(500).json({ error: 'Error de sesión al enviar mensaje.' });
   }
 });
