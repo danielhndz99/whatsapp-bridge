@@ -19,7 +19,7 @@ let isConnected = false;
 
 const authPath = './auth_info';
 
-// Cargar sesión guardada desde variable de entorno si existe
+// Restaurar sesión desde la variable de entorno SESSION_DATA si existe
 if (process.env.SESSION_DATA && !fs.existsSync(authPath)) {
   try {
     fs.mkdirSync(authPath, { recursive: true });
@@ -27,7 +27,7 @@ if (process.env.SESSION_DATA && !fs.existsSync(authPath)) {
     for (const [file, content] of Object.entries(sessionObj)) {
       fs.writeFileSync(path.join(authPath, file), JSON.stringify(content));
     }
-    console.log('✅ Sesión cargada exitosamente desde la variable de entorno');
+    console.log('✅ Sesión cargada exitosamente desde SESSION_DATA');
   } catch (err) {
     console.error('Error al restaurar SESSION_DATA:', err);
   }
@@ -59,25 +59,6 @@ async function iniciarWhatsApp() {
         isConnected = true;
         currentQr = null;
         console.log('✅ WHATSAPP CONECTADO CORRECTAMENTE');
-        
-        // Generar respaldo en Base64 para copiarlo
-        try {
-          const files = fs.readdirSync(authPath);
-          const sessionMap = {};
-          for (const file of files) {
-            const filePath = path.join(authPath, file);
-            if (fs.statSync(filePath).isFile()) {
-              sessionMap[file] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-            }
-          }
-          const base64Session = Buffer.from(JSON.stringify(sessionMap)).toString('base64');
-          console.log('\n================ COPIA ESTA CADENA EN RENDER (SESSION_DATA) ================');
-          console.log(base64Session);
-          console.log('===========================================================================\n');
-        } catch (e) {
-          console.error('Error generando string de sesión:', e);
-        }
-
       } else if (connection === 'close') {
         isConnected = false;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
@@ -133,10 +114,7 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    try {
-      await sock.groupMetadata(destino);
-    } catch (e) {}
-
+    // Envío directo utilizando el canal de mensajes estándar del socket
     await sock.sendMessage(destino, { text: contenido });
     console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
     
