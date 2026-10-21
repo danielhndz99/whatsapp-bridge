@@ -33,26 +33,13 @@ async function iniciarWhatsApp() {
       
       if (qr) {
         currentQr = qr;
-        console.log('¡Nuevo código QR generado con éxito!');
+        console.log('¡Nuevo código QR generado!');
       }
       
       if (connection === 'open') {
         isConnected = true;
         currentQr = null;
         console.log('¡WhatsApp conectado correctamente!');
-        
-        // Imprimir todos los grupos y sus IDs en los logs de Render
-        try {
-          const groups = await sock.groupFetchAllParticipating();
-          console.log('\n================ TUS GRUPOS DE WHATSAPP ================');
-          for (const id in groups) {
-            console.log(`📌 Grupo: "${groups[id].subject}" --> ID: ${id}`);
-          }
-          console.log('========================================================\n');
-        } catch (e) {
-          console.log('No se pudieron listar los grupos:', e);
-        }
-
       } else if (connection === 'close') {
         isConnected = false;
         const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
@@ -62,7 +49,7 @@ async function iniciarWhatsApp() {
       }
     });
   } catch (error) {
-    console.error('Error crítico al iniciar WhatsApp:', error);
+    console.error('Error al iniciar WhatsApp:', error);
     setTimeout(iniciarWhatsApp, 5000);
   }
 }
@@ -89,29 +76,38 @@ app.get('/', async (req, res) => {
       <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
         <h2>Escanea este código QR con tu WhatsApp</h2>
         <img src="${qrImage}" alt="QR Code" style="width:300px;height:300px;" />
-        <p>Abre WhatsApp > Dispositivos vinculados > Vincular dispositivo</p>
       </div>
     `);
   } catch (err) {
-    res.status(500).send('Error al generar la imagen del QR');
+    res.status(500).send('Error al generar QR');
   }
 });
 
+// Endpoint para recibir las solicitudes desde Lovable
 app.post('/send-whatsapp', async (req, res) => {
   try {
-    const { groupId, message } = req.body;
+    console.log('Datos recibidos desde Lovable:', req.body);
+    const { groupId, message, text } = req.body;
+    
+    // Determinar el contenido del mensaje
+    const contenido = message || text || 'Aviso de actualización de solicitud';
+    const destino = groupId || '120363294650859422@g.us';
+
     if (!sock || !isConnected) {
-      return res.status(500).json({ error: 'WhatsApp no está conectado todavía.' });
+      return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
-    await sock.sendMessage(groupId, { text: message });
-    res.json({ success: true, message: 'Mensaje enviado correctamente.' });
+
+    await sock.sendMessage(destino, { text: contenido });
+    
+    // Responder con éxito a Lovable
+    res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
   } catch (error) {
     console.error('Error al enviar mensaje:', error);
-    res.status(500).json({ error: 'No se pudo enviar el mensaje.' });
+    res.status(500).json({ error: 'No se pudo enviar el aviso' });
   }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor web corriendo en el puerto ${PORT}`);
+  console.log(`Servidor escuchando en puerto ${PORT}`);
 });
