@@ -5,6 +5,7 @@ import pino from 'pino';
 import QRCode from 'qrcode';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import NodeCache from 'node-cache';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,10 +20,10 @@ app.use(cors());
 let sock;
 let currentQr = null;
 let isConnected = false;
+const msgRetryCounterCache = new NodeCache();
 
 async function iniciarWhatsApp() {
   try {
-    // Usar la ruta absoluta exacta del disco persistente de Render
     const authPath = path.join('/opt/render/project/src', 'auth_info');
     const { state, saveCreds } = await useMultiFileAuthState(authPath);
     
@@ -31,6 +32,11 @@ async function iniciarWhatsApp() {
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
+      msgRetryCounterCache,
+      // Función obligatoria para evitar el SessionError en grupos
+      getMessage: async (key) => {
+        return { conversation: 'Mensaje de recuperación' };
+      },
       syncFullHistory: false
     });
 
@@ -47,7 +53,7 @@ async function iniciarWhatsApp() {
       if (connection === 'open') {
         isConnected = true;
         currentQr = null;
-        console.log('✅ WHATSAPP CONECTADO Y SESIÓN PERSISTENTE ACTIVA');
+        console.log('✅ WHATSAPP CONECTADO Y LISTO PARA ENVIAR');
       } else if (connection === 'close') {
         isConnected = false;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
