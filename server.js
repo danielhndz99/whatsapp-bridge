@@ -17,10 +17,20 @@ let sock;
 let currentQr = null;
 let isConnected = false;
 
-const authPath = '/opt/render/project/src/auth_info';
+const authPath = './auth_info';
 
-if (!fs.existsSync(authPath)) {
-  fs.mkdirSync(authPath, { recursive: true });
+// Cargar sesión guardada desde variable de entorno si existe
+if (process.env.SESSION_DATA && !fs.existsSync(authPath)) {
+  try {
+    fs.mkdirSync(authPath, { recursive: true });
+    const sessionObj = JSON.parse(Buffer.from(process.env.SESSION_DATA, 'base64').toString('utf-8'));
+    for (const [file, content] of Object.entries(sessionObj)) {
+      fs.writeFileSync(path.join(authPath, file), JSON.stringify(content));
+    }
+    console.log('✅ Sesión cargada exitosamente desde la variable de entorno');
+  } catch (err) {
+    console.error('Error al restaurar SESSION_DATA:', err);
+  }
 }
 
 async function iniciarWhatsApp() {
@@ -32,8 +42,7 @@ async function iniciarWhatsApp() {
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
-      // Mantiene activo el intercambio de llaves de grupo
-      markOnlineOnConnect: true
+      syncFullHistory: false
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -49,7 +58,26 @@ async function iniciarWhatsApp() {
       if (connection === 'open') {
         isConnected = true;
         currentQr = null;
-        console.log('✅ WHATSAPP CONECTADO Y SESIÓN CARGADA DESDE EL DISCO');
+        console.log('✅ WHATSAPP CONECTADO CORRECTAMENTE');
+        
+        // Generar respaldo en Base64 para copiarlo
+        try {
+          const files = fs.readdirSync(authPath);
+          const sessionMap = {};
+          for (const file of files) {
+            const filePath = path.join(authPath, file);
+            if (fs.statSync(filePath).isFile()) {
+              sessionMap[file] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+            }
+          }
+          const base64Session = Buffer.from(JSON.stringify(sessionMap)).toString('base64');
+          console.log('\n================ COPIA ESTA CADENA EN RENDER (SESSION_DATA) ================');
+          console.log(base64Session);
+          console.log('===========================================================================\n');
+        } catch (e) {
+          console.error('Error generando string de sesión:', e);
+        }
+
       } else if (connection === 'close') {
         isConnected = false;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
@@ -77,7 +105,7 @@ app.get('/', async (req, res) => {
       <html>
         <head><meta http-equiv="refresh" content="3"></head>
         <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
-          <h2>Iniciando servidor y cargando sesión...</h2>
+          <h2>Iniciando servidor, espera un momento...</h2>
         </body>
       </html>
     `);
@@ -105,23 +133,18 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    // Pasos obligatorios para inicializar la sesión del grupo antes de enviar
     try {
-      // 1. Obtener los datos/participantes del grupo para cargar sus llaves
       await sock.groupMetadata(destino);
-    } catch (e) {
-      console.log('Consulta de metadatos completada/omitida:', e.message);
-    }
+    } catch (e) {}
 
-    // 2. Enviar mensaje directo al JID del grupo
     await sock.sendMessage(destino, { text: contenido });
-    console.log(`✅ Mensaje enviado exitosamente al grupo ${destino}`);
+    console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
     
     return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
 
   } catch (error) {
-    console.error('Error al enviar mensaje:', error);
-    return res.status(500).json({ error: 'Error de sesión al enviar mensaje.' });
+    console.error('Error al enviar el mensaje:', error);
+    return res.status(500).json({ error: 'Error al enviar mensaje.' });
   }
 });
 
