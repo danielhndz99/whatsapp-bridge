@@ -25,7 +25,9 @@ async function iniciarWhatsApp() {
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
       browser: ['Ubuntu', 'Chrome', '20.0.0'],
-      syncFullHistory: false
+      // Evitar sincronizaciones pesadas que generan conflictos de sesión
+      syncFullHistory: false,
+      markOnlineOnConnect: true
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -102,14 +104,12 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    // 1. Forzar sincronización de metadatos del grupo (crea las sesiones de cifrado de los participantes)
+    // Asegurar que el socket reconozca el grupo antes de enviar
     try {
-      await sock.groupMetadata(destino);
-    } catch (e) {
-      console.log('Aviso: No se pudieron obtener metadatos previos, intentando envío directo...', e.message);
-    }
+      await sock.presenceSubscribe(destino);
+    } catch (e) {}
 
-    // 2. Enviar el mensaje
+    // Envío del mensaje asegurando la estructura compatible con Baileys
     await sock.sendMessage(destino, { text: contenido });
     console.log(`✅ Mensaje enviado exitosamente a ${destino}`);
     
@@ -117,7 +117,18 @@ app.post('/send-whatsapp', async (req, res) => {
 
   } catch (error) {
     console.error('Error al enviar el mensaje:', error);
-    res.status(500).json({ error: 'Error de sesión al enviar mensaje.' });
+    
+    // Intento alternativo de emergencia utilizando reenvío directo por id de grupo
+    try {
+      const { groupId, message, text } = req.body;
+      const contenido = message || text;
+      await sock.sendMessage(groupId || '120363294650859422@g.us', { text: contenido });
+      console.log('✅ Mensaje enviado en el intento de respaldo');
+      return res.status(200).json({ success: true, message: 'Aviso enviado en respaldo' });
+    } catch (err2) {
+      console.error('Fallo total de envío:', err2);
+      return res.status(500).json({ error: 'SessionError persistente' });
+    }
   }
 });
 
