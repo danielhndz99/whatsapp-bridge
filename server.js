@@ -7,7 +7,7 @@ import fs from 'fs';
 import NodeCache from 'node-cache';
 
 const require = createRequire(import.meta.url);
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, generateWAMessageFromContent, proto } = require('@whiskeysockets/baileys');
 
 const app = express();
 app.use(express.json());
@@ -106,18 +106,21 @@ app.post('/send-whatsapp', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp no está conectado' });
     }
 
-    // Uso de relayMessage para evitar errores de cifrado libsignal en grupos
-    const messageId = sock.generateMessageTag();
-    await sock.relayMessage(destino, {
-      conversation: contenido
-    }, { messageId });
+    // Generar el mensaje usando el protocolo nativo para evitar SessionError en grupos
+    const messageContent = generateWAMessageFromContent(destino, {
+      extendedTextMessage: {
+        text: contenido
+      }
+    }, { userJid: sock.user.id });
 
-    console.log(`✅ Mensaje enviado exitosamente mediante relayMessage a ${destino}`);
+    await sock.relayMessage(destino, messageContent.message, { messageId: messageContent.key.id });
+    console.log(`✅ Mensaje enviado exitosamente al grupo ${destino}`);
+    
     return res.status(200).json({ success: true, message: 'Aviso enviado a WhatsApp' });
 
   } catch (error) {
     console.error('Error crítico al enviar el mensaje:', error);
-    return res.status(500).json({ error: 'Error al enviar mensaje.' });
+    return res.status(500).json({ error: 'Error al enviar mensaje por protocolo.' });
   }
 });
 
